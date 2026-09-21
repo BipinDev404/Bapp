@@ -126,7 +126,7 @@ Render is a better fit for the complete Bapp application because it runs the Exp
 3. Render detects `render.yaml`, builds the Docker image, and creates the web service.
 4. Open the generated Render URL and verify `/api/system/health` returns JSON.
 
-The included Blueprint uses the `starter` plan because free services sleep and are not suitable for long-running build jobs. You can change the plan in Render if occasional sleeping and lost in-memory state are acceptable.
+The included Blueprint uses Render's `free` plan, which does not require a paid subscription. Free services sleep after inactivity, can take a few seconds to wake up, and are not reliable for long-running APK jobs. Upgrade only if you need dependable build workers.
 
 The Docker image installs Node.js and Python, preserves `server/templates/webview-base.apk`, and runs `npm start`. The service listens on Render's `PORT` environment variable.
 
