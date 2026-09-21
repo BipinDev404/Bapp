@@ -1,0 +1,6 @@
+{
+  "name": "Bapp",
+  "description": "Turn any website into a production-ready mobile application for Android and iOS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
