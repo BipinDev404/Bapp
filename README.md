@@ -84,6 +84,39 @@ npm start
 
 The production server serves the compiled frontend from `dist/` and listens on port `3000`.
 
+## Deploy to Vercel
+
+This repository includes `vercel.json` and `api/index.ts` so Vercel deploys the Express API as a serverless function alongside the Vite frontend.
+
+From the project directory:
+
+```powershell
+npm install
+npm run build
+npx vercel
+```
+
+For a production deployment:
+
+```powershell
+npx vercel --prod
+```
+
+In the Vercel project settings, use these values if Vercel asks for them:
+
+- **Framework Preset:** Vite
+- **Build Command:** `npm run build`
+- **Output Directory:** `dist`
+- **Install Command:** `npm install`
+
+Do not deploy only the `dist` folder. The `api/index.ts` serverless function is required for `/api/analyze`, projects, builds, downloads, and the preview proxy. After deployment, verify:
+
+```text
+https://YOUR-DOMAIN.vercel.app/api/system/health
+```
+
+It should return JSON containing `"status":"operational"`. If the frontend receives an HTML page from an API URL, Vercel is serving the frontend fallback instead of the API function; check that `api/index.ts` and `vercel.json` are included in the deployed repository.
+
 ## Application Workflow
 
 1. Enter a public website URL and confirm that you have permission to package it.

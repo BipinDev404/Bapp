@@ -1,5 +1,18 @@
 import type { Project, BuildJob, WebsiteAnalysis, Platform, ProjectConfig } from '../types';
 
+async function readJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (text.trimStart().startsWith('<')) {
+      throw new Error('The Bapp API is not deployed. Configure the Vercel serverless API before using this feature.');
+    }
+    throw new Error('The server returned an invalid response.');
+  }
+}
+
 export const api = {
   async analyzeUrl(url: string): Promise<WebsiteAnalysis> {
     const res = await fetch('/api/analyze', {
@@ -7,7 +20,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     });
-    const data = await res.json();
+    const data = await readJson<{ analysis: WebsiteAnalysis; error?: string }>(res);
     if (!res.ok) throw new Error(data.error || 'Failed to analyze website');
     return data.analysis;
   },

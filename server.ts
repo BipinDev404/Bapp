@@ -7,7 +7,7 @@ import { buildQueue } from './server/buildQueue';
 import { validateWebsiteUrl, validatePackageId } from './server/security';
 import type { Platform } from './src/types';
 
-async function startServer() {
+export async function createApp(startListening = false) {
   const app = express();
   const PORT = 3000;
 
@@ -387,12 +387,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Bapp Server running on http://0.0.0.0:${PORT}`);
-  });
+  if (startListening) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Bapp Server running on http://0.0.0.0:${PORT}`);
+    });
+  }
+
+  return app;
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start Bapp server:', err);
-  process.exit(1);
-});
+if (process.env.VERCEL !== '1') {
+  createApp(true).catch((err) => {
+    console.error('Failed to start Bapp server:', err);
+    process.exit(1);
+  });
+}
