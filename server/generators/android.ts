@@ -1,12 +1,19 @@
 import JSZip from 'jszip';
 import type { Project } from '../../src/types';
 
+function normalizeTargetUrl(rawUrl: string): string {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return 'https://example.com';
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 export async function generateAndroidProjectZip(project: Project): Promise<{ zipBuffer: Buffer; fileName: string }> {
   const zip = new JSZip();
   const config = project.config;
   const packageId = config.packageId || 'com.example.bappdemo';
   const appName = config.appName || 'Bapp Demo';
-  const targetUrl = project.websiteUrl || 'https://example.com';
+    const targetUrl = normalizeTargetUrl(project.websiteUrl || 'https://example.com');
+    const targetUrlBase64 = Buffer.from(targetUrl, 'utf8').toString('base64');
   const packagePath = packageId.replace(/\./g, '/');
 
   // Root files
@@ -424,6 +431,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.view.View
 import android.webkit.*
 import android.widget.Button
@@ -460,7 +468,7 @@ class MainActivity : AppCompatActivity() {
         fileUploadCallback = null
     }
 
-    private val targetUrl = "${targetUrl}"
+    private val targetUrl = String(Base64.decode("${targetUrlBase64}", Base64.DEFAULT), Charsets.UTF_8)
     private val allowedHost = Uri.parse(targetUrl).host ?: ""
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -507,6 +515,8 @@ class MainActivity : AppCompatActivity() {
         settings.javaScriptEnabled = ${config.enableJavaScript}
         settings.domStorageEnabled = ${config.enableDomStorage}
         settings.databaseEnabled = true
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        settings.mediaPlaybackRequiresUserGesture = false
         settings.loadWithOverviewMode = true
         settings.useWideViewPort = true
         settings.builtInZoomControls = false
@@ -518,7 +528,9 @@ class MainActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         }
+        CookieManager.getInstance().setAcceptCookie(true)
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -566,6 +578,14 @@ class MainActivity : AppCompatActivity() {
                     progressBar.visibility = View.GONE
                     swipeRefresh.isRefreshing = false
                 }
+            }
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                webView.visibility = View.GONE
+                offlineLayout.visibility = View.VISIBLE
+                progressBar.visibility = View.GONE
+                swipeRefresh.isRefreshing = false
+                return true
             }
         }
 

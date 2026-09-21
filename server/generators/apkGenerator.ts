@@ -30,6 +30,12 @@ function isLightColor(hex?: string): boolean {
   return (r * 299 + g * 587 + b * 114) / 1000 > 165;
 }
 
+function normalizeTargetUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return 'https://example.com';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 function getDebugKeystore(): { privateKey: string; certificate: string } {
   if (cachedKeyPem && cachedCertPem) {
     return { privateKey: cachedKeyPem, certificate: cachedCertPem };
@@ -230,7 +236,7 @@ function generateFallbackMonogramSvg(themeColor: string, initialChar: string, te
 export async function generateRealApk(project: Project): Promise<{ apkBuffer: Buffer; fileName: string }> {
   const config = project.config;
   const appName = config.appName || project.name || 'Bapp App';
-  const targetUrl = project.websiteUrl || 'https://example.com';
+  const targetUrl = normalizeTargetUrl(project.websiteUrl || 'https://example.com');
   const safeBaseName = project.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/^-+|-+$/g, '') || 'app';
   const fileName = `${safeBaseName}-debug.apk`;
 
@@ -299,18 +305,24 @@ export async function generateRealApk(project: Project): Promise<{ apkBuffer: Bu
     fs.writeFileSync(tempIconsJson, JSON.stringify(iconsMap));
 
     // Execute python packer to produce 4-byte aligned, DEX-patched, AXML-patched APK with custom icons
-    execFileSync('python3', [
-      packerScriptPath,
-      templatePath,
-      tempUnsignedApk,
-      appName,
-      targetUrl,
-      themeColor,
-      bgColor,
-      rawConfigJson,
-      packageId,
-      tempIconsJson,
-    ], { stdio: 'pipe' });
+    try {
+      execFileSync('python3', [
+        packerScriptPath,
+        templatePath,
+        tempUnsignedApk,
+        appName,
+        targetUrl,
+        themeColor,
+        bgColor,
+        rawConfigJson,
+        packageId,
+        tempIconsJson,
+      ], { stdio: 'pipe' });
+    } catch (error: unknown) {
+      const processError = error as { stderr?: Buffer | string };
+      const details = processError.stderr?.toString().trim();
+      throw new Error(`APK packaging failed${details ? `: ${details}` : '.'}`);
+    }
 
     if (!fs.existsSync(tempUnsignedApk)) {
       throw new Error('APK packer failed to write output file');

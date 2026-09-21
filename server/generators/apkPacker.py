@@ -113,6 +113,9 @@ def encode_uleb128(value):
         if not value:
             return bytes(encoded)
 
+def utf16_code_units(value):
+    return len(value.encode('utf-16-le')) // 2
+
 def patch_and_pack(base_path, out_path, app_name, target_url, theme_color='#0A0A0A', bg_color='#0A0A0A', raw_config=None, package_id='com.example.app', icon_map=None):
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"Base APK template not found: {base_path}")
@@ -140,7 +143,7 @@ def patch_and_pack(base_path, out_path, app_name, target_url, theme_color='#0A0A
 
         clean_url = target_url.strip() if target_url else 'https://example.com'
         target_bytes = clean_url.encode('utf-8')
-        encoded_length = encode_uleb128(len(target_bytes))
+        encoded_length = encode_uleb128(utf16_code_units(clean_url))
 
         dex = bytearray(dex_bytes)
         if len(encoded_length) + len(target_bytes) + 1 <= orig_total_slot:
