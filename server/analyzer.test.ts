@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import JSZip from 'jszip';
 import { analyzeWebsite } from './analyzer';
 import { generateAndroidProjectZip } from './generators/android';
+import { generateIOSProjectZip } from './generators/ios';
 import type { Project } from '../src/types';
 
 const fixtures = [
@@ -68,4 +69,10 @@ test('generated Android project contains gated native bridge handlers', async ()
   assert.match(text, /setDownloadListener/);
   assert.match(text, /onShowFileChooser/);
   assert.match(text, /onGeolocationPermissionsShowPrompt/);
+  assert.match(await archive.file('app/src/main/assets/bapp-bridge.js')!.async('text'), /window\.bapp/);
+
+  const { zipBuffer: iosZip } = await generateIOSProjectZip(project);
+  const iosArchive = await JSZip.loadAsync(iosZip);
+  assert.match(await iosArchive.file('BridgeTest/BappBridge.swift')!.async('text'), /WKScriptMessageHandler/);
+  assert.match(await iosArchive.file('BridgeTest/bapp-shell.json')!.async('text'), /"bridgeVersion":"1\.0\.0"/);
 });

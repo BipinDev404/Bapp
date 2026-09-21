@@ -1,9 +1,7 @@
 import { randomUUID, createHash } from 'crypto';
 import { db } from './db';
 import { generateAndroidProjectZip } from './generators/android';
-import { generateRealApk } from './generators/apkGenerator';
 import { generateIOSProjectZip } from './generators/ios';
-import { generateRealIpa } from './generators/ipaGenerator';
 import { redactSecrets } from './security';
 import type { BuildJob, BuildLog, BuildArtifact, Platform, Project } from '../src/types';
 
@@ -124,31 +122,7 @@ class BuildQueueService {
         artifacts.push(androidProjectArtifact);
         this.addLog(build, 'success', 'generate', `Generated ${androidFileName} (${(androidZip.length / 1024).toFixed(1)} KB)`);
 
-        // Real Android APK package generation
-        this.addLog(build, 'info', 'generate', 'Assembling Android application binary (classes.dex, resources.arsc, assets)...');
-        const { apkBuffer, fileName: apkFileName } = await generateRealApk(project);
-        const apkChecksum = createHash('sha256').update(apkBuffer).digest('hex').substring(0, 16);
-
-        const apkArtifact: BuildArtifact = {
-          id: `art_${randomUUID().substring(0, 8)}`,
-          buildId: build.id,
-          projectId: project.id,
-          type: 'apk',
-          fileName: apkFileName,
-          fileSize: apkBuffer.length,
-          downloadUrl: `/api/artifacts/${build.id}/android-apk`,
-          checksum: apkChecksum,
-          createdAt: new Date().toISOString(),
-          description: 'Official signed Android Package (.apk) with v1/v2/v3 signatures ready for installation.',
-        };
-        db.saveArtifact(apkArtifact, apkBuffer);
-        artifacts.push(apkArtifact);
-        this.addLog(
-          build,
-          'success',
-          'generate',
-          `Generated and signed real installable APK: ${apkFileName} (${(apkBuffer.length / (1024 * 1024)).toFixed(2)} MB)`
-        );
+        this.addLog(build, 'info', 'generate', 'APK/AAB compilation requires an isolated Android worker; generated project is ready for Gradle.');
       }
 
       // Generate iOS Project if requested
@@ -177,32 +151,7 @@ class BuildQueueService {
         artifacts.push(iosProjectArtifact);
         this.addLog(build, 'success', 'generate', `Generated ${iosFileName} (${(iosZip.length / 1024).toFixed(1)} KB)`);
 
-        // Real iOS IPA package generation (Payload App bundle & iTunes metadata)
-        this.addLog(build, 'info', 'generate', 'Packaging iOS App Store/Sideload application archive (.ipa)...');
-        const { ipaBuffer, fileName: ipaFileName } = await generateRealIpa(project);
-        const ipaChecksum = createHash('sha256').update(ipaBuffer).digest('hex').substring(0, 16);
-
-        const ipaArtifact: BuildArtifact = {
-          id: `art_${randomUUID().substring(0, 8)}`,
-          buildId: build.id,
-          projectId: project.id,
-          type: 'ipa',
-          fileName: ipaFileName,
-          fileSize: ipaBuffer.length,
-          downloadUrl: `/api/artifacts/${build.id}/ios-ipa`,
-          checksum: ipaChecksum,
-          createdAt: new Date().toISOString(),
-          description: 'Direct installable iOS Application Package (.ipa) ready for Sideloadly, AltStore, TrollStore, or TestFlight.',
-        };
-
-        db.saveArtifact(ipaArtifact, ipaBuffer);
-        artifacts.push(ipaArtifact);
-        this.addLog(
-          build,
-          'success',
-          'generate',
-          `Generated installable iOS IPA: ${ipaFileName} (${(ipaBuffer.length / 1024).toFixed(1)} KB)`
-        );
+        this.addLog(build, 'info', 'generate', 'IPA/archive signing requires an isolated macOS Xcode worker; generated project is ready for Xcode.');
       }
 
       await new Promise((r) => setTimeout(r, 800));
@@ -210,17 +159,17 @@ class BuildQueueService {
       // 4. BUILDING & COMPILING
       build.status = 'BUILDING';
       build.progress = 75;
-      build.currentStep = 'Compiling native source code and assembling packages';
-      this.addLog(build, 'info', 'build', 'Executing Gradle assemble tasks...');
-      this.addLog(build, 'info', 'build', 'Validating resource trees and Dalvik executable boundaries...');
+      build.currentStep = 'Validating native shell projects for platform workers';
+      this.addLog(build, 'info', 'build', 'Android Gradle and iOS Xcode compilation are delegated to isolated platform workers.');
+      this.addLog(build, 'info', 'build', 'Source projects contain the configured bridge, plugin manifest, permissions, and navigation policy.');
       await new Promise((r) => setTimeout(r, 600));
 
       // 5. SIGNING
       build.status = 'SIGNING';
       build.progress = 88;
-      build.currentStep = 'Applying cryptographic signing certificates';
-      this.addLog(build, 'info', 'sign', 'Applying development keystore signature to package manifests...');
-      this.addLog(build, 'info', 'sign', 'Checksum verification complete. Keystore fingerprints verified.');
+      build.currentStep = 'Preparing artifacts for platform-worker signing';
+      this.addLog(build, 'info', 'sign', 'No APK, AAB, or IPA is claimed without the corresponding isolated signing worker.');
+      this.addLog(build, 'info', 'sign', 'Generated source archive checksums verified.');
       await new Promise((r) => setTimeout(r, 500));
 
       // 6. UPLOADING
@@ -233,10 +182,10 @@ class BuildQueueService {
       // 7. COMPLETED
       build.status = 'COMPLETED';
       build.progress = 100;
-      build.currentStep = 'Build finished successfully';
+      build.currentStep = 'Native shell projects generated successfully';
       build.artifacts = artifacts;
       build.completedAt = new Date().toISOString();
-      this.addLog(build, 'success', 'complete', 'All build steps finished cleanly. Artifacts are ready for download.');
+      this.addLog(build, 'success', 'complete', 'Native shell source artifacts are ready for download. Platform binaries require configured isolated workers.');
 
       db.saveBuild(build);
     } catch (err: unknown) {

@@ -2,6 +2,51 @@ export type Platform = 'android' | 'ios' | 'both';
 
 export type CompatibilityStatus = 'compatible' | 'native_required' | 'browser_required' | 'not_supported';
 
+export type NativePluginName =
+  | 'camera'
+  | 'location'
+  | 'notifications'
+  | 'biometrics'
+  | 'haptics'
+  | 'qrScanner'
+  | 'downloads'
+  | 'filePicker'
+  | 'share'
+  | 'secureStorage'
+  | 'deepLinks'
+  | 'analytics'
+  | 'inAppPurchases';
+
+export interface NativePluginConfig {
+  enabled: boolean;
+  options?: Record<string, string | number | boolean>;
+}
+
+export interface ShellNavigationConfig {
+  topBar: boolean;
+  bottomTabs: boolean;
+  sidebar: boolean;
+  backButton: 'history' | 'exit' | 'confirm';
+  primaryDomain: string;
+  allowedDomains: string[];
+  externalLinks: 'in_app' | 'external_browser' | 'ask';
+}
+
+export interface ShellConfig {
+  schemaVersion: 1;
+  website: string;
+  appName: string;
+  packageId: string;
+  bundleId: string;
+  versionName: string;
+  versionCode: number;
+  bridgeVersion: string;
+  plugins: Record<NativePluginName, NativePluginConfig>;
+  navigation: ShellNavigationConfig;
+  customJavaScript?: string;
+  customCss?: string;
+}
+
 export interface CompatibilityFeature {
   detected: boolean;
   status: CompatibilityStatus;
@@ -120,6 +165,10 @@ export interface ProjectConfig {
   enableDomStorage: boolean;
   enableJavaScript: boolean;
   clearCacheOnExit: boolean;
+  plugins?: Partial<Record<NativePluginName, NativePluginConfig>>;
+  navigation?: Partial<ShellNavigationConfig>;
+  customJavaScript?: string;
+  customCss?: string;
 }
 
 export interface Project {

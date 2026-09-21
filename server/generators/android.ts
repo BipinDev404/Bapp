@@ -1,5 +1,7 @@
 import JSZip from 'jszip';
 import type { Project } from '../../src/types';
+import { createShellConfig } from '../shellConfig';
+import { createBridgeScript } from '../bridgeScript';
 
 function normalizeTargetUrl(rawUrl: string): string {
     const trimmed = rawUrl.trim();
@@ -14,6 +16,10 @@ export async function generateAndroidProjectZip(project: Project): Promise<{ zip
   const appName = config.appName || 'Bapp Demo';
     const targetUrl = normalizeTargetUrl(project.websiteUrl || 'https://example.com');
     const targetUrlBase64 = Buffer.from(targetUrl, 'utf8').toString('base64');
+    const shellConfig = createShellConfig(project);
+    const shellConfigJson = JSON.stringify(shellConfig);
+    const shellJsonForKotlin = shellConfigJson.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const bridgeScriptBase64 = Buffer.from(createBridgeScript(shellConfigJson), 'utf8').toString('base64');
   const packagePath = packageId.replace(/\./g, '/');
 
   // Root files
@@ -151,6 +157,8 @@ dependencies {
   );
 
   zip.file('app/proguard-rules.pro', `# Proguard rules for Bapp WebView wrapper\n-keepclassmembers class * {\n    @android.webkit.JavascriptInterface <methods>;\n}\n`);
+    zip.file('app/src/main/assets/bapp-shell.json', shellConfigJson);
+    zip.file('app/src/main/assets/bapp-bridge.js', createBridgeScript(shellConfigJson));
 
   // Manifest permissions
   const permissions = [
@@ -546,6 +554,7 @@ class MainActivity : AppCompatActivity() {
             CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
         }
         CookieManager.getInstance().setAcceptCookie(true)
+        webView.addJavascriptInterface(BappBridge(this, webView, "${shellJsonForKotlin}"), "BappNative")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -574,11 +583,13 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                view?.evaluateJavascript(String(Base64.decode("${bridgeScriptBase64}", Base64.DEFAULT)), null)
                 progressBar.visibility = View.VISIBLE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                view?.evaluateJavascript(String(Base64.decode("${bridgeScriptBase64}", Base64.DEFAULT)), null)
                 progressBar.visibility = View.GONE
                 swipeRefresh.isRefreshing = false
                 offlineLayout.visibility = View.GONE
@@ -746,6 +757,52 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         webView.saveState(outState)
+    }
+}
+`
+  );
+
+  zip.file(
+    `app/src/main/java/${packagePath}/BappBridge.kt`,
+    `package ${packageId}
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.widget.Toast
+import org.json.JSONObject
+
+class BappBridge(private val context: Context, private val webView: WebView, private val shellJson: String) {
+    private val storage = context.getSharedPreferences("bapp_secure_storage", Context.MODE_PRIVATE)
+
+    @JavascriptInterface
+    fun call(method: String, rawArgs: String): String {
+        val args = runCatching { JSONObject(rawArgs) }.getOrDefault(JSONObject())
+        return try {
+            when (method) {
+                "device.getInfo" -> JSONObject().put("platform", "android").put("version", "1.0.0").toString()
+                "navigation.back" -> { webView.post { if (webView.canGoBack()) webView.goBack() }; "{}" }
+                "navigation.close" -> { (context as? android.app.Activity)?.finish(); "{}" }
+                "navigation.open" -> { openExternal(args.optString("url")); "{}" }
+                "share.sharePage" -> { openExternal(args.optString("url")); "{}" }
+                "files.download" -> { openExternal(args.optString("url")); "{}" }
+                "storage.get" -> JSONObject().put("value", storage.getString(args.optString("key"), null)).toString()
+                "storage.set" -> { storage.edit().putString(args.optString("key"), args.opt("value").toString()).apply(); "{}" }
+                "haptics.trigger" -> { (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE)); "{}" }
+                else -> JSONObject().put("error", "Plugin not enabled or implemented: $method").toString()
+            }
+        } catch (error: Exception) {
+            JSONObject().put("error", error.message ?: "Native bridge error").toString()
+        }
+    }
+
+    private fun openExternal(url: String) {
+        if (url.isBlank()) return
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 }
 `

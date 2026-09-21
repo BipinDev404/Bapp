@@ -1,5 +1,7 @@
 import JSZip from 'jszip';
 import type { Project } from '../../src/types';
+import { createShellConfig } from '../shellConfig';
+import { createBridgeScript } from '../bridgeScript';
 
 export async function generateIOSProjectZip(project: Project): Promise<{ zipBuffer: Buffer; fileName: string }> {
   const zip = new JSZip();
@@ -8,6 +10,9 @@ export async function generateIOSProjectZip(project: Project): Promise<{ zipBuff
   const appName = config.appName || 'Bapp Demo';
   const targetUrl = project.websiteUrl || 'https://example.com';
   const sanitizedAppName = appName.replace(/[^a-zA-Z0-9]/g, '');
+    const shellConfig = createShellConfig(project);
+    const shellConfigJson = JSON.stringify(shellConfig);
+    const bridgeScript = createBridgeScript(shellConfigJson);
 
   // Info.plist permissions & configuration
   const cameraUsage = config.enableCamera
@@ -174,6 +179,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.userContentController.addUserScript(WKUserScript(source: "${bridgeScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        configuration.userContentController.add(BappBridge(), name: "bapp")
 
         ${config.userAgentAppend ? `configuration.applicationNameForUserAgent = "${config.userAgentAppend}"` : ''}
 
@@ -318,6 +325,34 @@ class ViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
 }
 `
   );
+
+    zip.file(
+        `${sanitizedAppName}/BappBridge.swift`,
+        `import Foundation
+import UIKit
+import WebKit
+
+final class BappBridge: NSObject, WKScriptMessageHandler {
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+                guard let body = message.body as? [String: Any],
+                            let id = body["id"] as? String,
+                            let method = body["method"] as? String else { return }
+                let result: [String: Any]
+                switch method {
+                case "device.getInfo": result = ["platform": "ios", "version": "1.0.0"]
+                case "haptics.trigger": UIImpactFeedbackGenerator(style: .light).impactOccurred(); result = [:]
+                default: result = ["error": "Plugin not enabled or implemented: \\(method)"]
+                }
+                guard let webView = message.webView,
+                            let data = try? JSONSerialization.data(withJSONObject: result),
+                            let json = String(data: data, encoding: .utf8) else { return }
+                let escaped = json.replacingOccurrences(of: "\\\\", with: "\\\\\\\\").replacingOccurrences(of: "'", with: "\\\\'")
+                webView.evaluateJavaScript("window.__bappCallbacks && window.__bappCallbacks['\\(id)'] && window.__bappCallbacks['\\(id)'].resolve(JSON.parse('\\(escaped)'));", completionHandler: nil)
+        }
+}
+`
+    );
+    zip.file(`${sanitizedAppName}/bapp-shell.json`, shellConfigJson);
 
   // Xcode project.pbxproj
   zip.file(

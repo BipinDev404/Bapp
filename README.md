@@ -1,14 +1,16 @@
 # Bapp
 
-Bapp turns a responsive website into downloadable Android and iOS wrapper projects. It provides a React/Vite interface, an Express API, website analysis, native permission configuration, Android APK generation, and Android Studio/Xcode project archives.
+Bapp keeps the website as the primary application and generates a native Android/iOS shell around it. The shell contains a centralized WebView, navigation and permission managers, a cross-platform `window.bapp` bridge, and configurable native plugins.
 
 ## Features
 
 - Analyze a website's HTTPS status, responsive viewport, metadata, favicon, PWA manifest, service worker, and common browser features.
 - Configure application name, package identifiers, versioning, theme colors, orientation, navigation behavior, and WebView settings.
 - Configure camera, location, file upload, and notification capabilities.
-- Generate Android Kotlin/Gradle projects and signed debug APKs.
-- Generate iOS Swift/WKWebView Xcode projects and IPA archives.
+- Generate stable Android Kotlin/Gradle and iOS Swift/WKWebView shell projects.
+- Use the typed `@bapp/bridge` SDK for feature detection and Promise-based native APIs.
+- Select native plugins from one shared shell configuration for both platforms.
+- Generate source projects until isolated Android/Linux or iOS/macOS build workers are configured.
 - Download generated build artifacts from the dashboard.
 - Validate requested websites against common SSRF targets and private network ranges.
 
@@ -21,13 +23,11 @@ Bapp turns a responsive website into downloadable Android and iOS wrapper projec
 - `esbuild` for the production server bundle
 - `sharp` for icon processing
 - JSZip for native project archives
-- Python 3 for APK template packing
 
 ## Requirements
 
 - Node.js 22 or newer recommended
 - npm
-- Python 3.10 or newer for Android APK builds
 - Internet access for website analysis and remote favicon downloads
 
 Android Studio and Xcode are not required to run the Bapp web interface. Android Studio is needed to compile the downloaded Android project locally. Xcode on macOS is needed to compile and sign the downloaded iOS project.
@@ -40,7 +40,7 @@ Open a terminal in the project directory:
 npm install
 ```
 
-The repository includes the Android APK template at `server/templates/webview-base.apk`. Keep this file in place if you want APK builds to work.
+Android Studio is required to compile the downloaded Android project. Xcode on macOS is required to compile and sign the downloaded iOS project. Bapp does not claim an APK, AAB, or IPA until the corresponding isolated platform worker is configured.
 
 ## Development
 
