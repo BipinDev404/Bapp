@@ -163,6 +163,10 @@ dependencies {
     permissions.push('    <uses-feature android:name="android.hardware.camera" android:required="false" />');
   }
 
+    if (config.enableMicrophone) {
+        permissions.push('    <uses-permission android:name="android.permission.RECORD_AUDIO" />');
+    }
+
   if (config.enableLocation) {
     permissions.push('    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />');
     permissions.push('    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />');
@@ -426,11 +430,15 @@ ${permissions.join('\n')}
     `package ${packageId}
 
 import android.annotation.SuppressLint
+import android.Manifest
+import android.app.DownloadManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.util.Base64
 import android.view.View
 import android.webkit.*
@@ -440,6 +448,8 @@ import android.widget.ProgressBar
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class MainActivity : AppCompatActivity() {
@@ -451,6 +461,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRetry: Button
 
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingWebPermissionRequest: PermissionRequest? = null
+    private var pendingGeolocationOrigin: String? = null
+    private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
 
     private val filePickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -523,6 +536,8 @@ class MainActivity : AppCompatActivity() {
         settings.displayZoomControls = false
         settings.allowFileAccess = false
         settings.allowContentAccess = false
+        settings.javaScriptCanOpenWindowsAutomatically = ${config.enablePopups}
+        settings.setSupportMultipleWindows(${config.enablePopups})
 
         ${config.userAgentAppend ? `settings.userAgentString = settings.userAgentString + " ${config.userAgentAppend}"` : ''}
 
@@ -538,9 +553,9 @@ class MainActivity : AppCompatActivity() {
                 val host = uri.host ?: ""
 
                 // Handle external links or custom protocols
-                if (uri.scheme == "tel" || uri.scheme == "mailto" || uri.scheme == "sms") {
+                if (uri.scheme !in listOf("http", "https")) {
                     val intent = Intent(Intent.ACTION_VIEW, uri)
-                    startActivity(intent)
+                    runCatching { startActivity(intent) }
                     return true
                 }
 
@@ -587,6 +602,29 @@ class MainActivity : AppCompatActivity() {
                 swipeRefresh.isRefreshing = false
                 return true
             }
+
+            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 200) >= 500) {
+                    webView.visibility = View.GONE
+                    offlineLayout.visibility = View.VISIBLE
+                }
+            }
+        }
+
+        if (${config.enableDownloads}) {
+            webView.setDownloadListener { downloadUrl, userAgent, contentDisposition, mimeType, _ ->
+                val fileName = URLUtil.guessFileName(downloadUrl, contentDisposition, mimeType)
+                val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
+                    setMimeType(mimeType)
+                    addRequestHeader("User-Agent", userAgent)
+                    setTitle(fileName)
+                    setDescription("Downloading from ${appName.replace("\"", "")}")
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                }
+                (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -594,6 +632,40 @@ class MainActivity : AppCompatActivity() {
                 progressBar.progress = newProgress
                 if (newProgress >= 100) {
                     progressBar.visibility = View.GONE
+                }
+            }
+
+            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
+                if (!${config.enablePopups} || !isUserGesture) return false
+                val popupUrl = view?.hitTestResult?.extra ?: return false
+                if ("${config.popupBehavior}" == "same_webview") {
+                    view.loadUrl(popupUrl)
+                    return true
+                } else {
+                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(popupUrl))) }
+                    return true
+                }
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null || request.origin.host != allowedHost) {
+                    request?.deny()
+                    return
+                }
+                val requested = request.resources.toSet()
+                val androidPermissions = mutableListOf<String>()
+                if (PermissionRequest.RESOURCE_VIDEO_CAPTURE in requested && ${config.enableCamera}) androidPermissions += Manifest.permission.CAMERA
+                if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in requested && ${config.enableMicrophone}) androidPermissions += Manifest.permission.RECORD_AUDIO
+                if (androidPermissions.isEmpty()) {
+                    request.deny()
+                    return
+                }
+                val missing = androidPermissions.filter { ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED }
+                if (missing.isEmpty()) {
+                    request.grant(request.resources)
+                } else {
+                    pendingWebPermissionRequest = request
+                    ActivityCompat.requestPermissions(this@MainActivity, missing.toTypedArray(), 7001)
                 }
             }
 
@@ -605,8 +677,9 @@ class MainActivity : AppCompatActivity() {
                 fileUploadCallback?.onReceiveValue(null)
                 fileUploadCallback = filePathCallback
 
-                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     type = "*/*"
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE)
                     addCategory(Intent.CATEGORY_OPENABLE)
                 }
 
@@ -625,10 +698,35 @@ class MainActivity : AppCompatActivity() {
                 origin: String?,
                 callback: GeolocationPermissions.Callback?
             ) {
-                callback?.invoke(origin, true, false)
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    callback?.invoke(origin, true, false)
+                } else {
+                    pendingGeolocationOrigin = origin
+                    pendingGeolocationCallback = callback
+                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 7002)
+                }
             }`
                 : ''
             }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7001) {
+            val request = pendingWebPermissionRequest
+            pendingWebPermissionRequest = null
+            if (request != null && grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                request.grant(request.resources)
+            } else {
+                request?.deny()
+            }
+        } else if (requestCode == 7002) {
+            val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+            pendingGeolocationCallback?.invoke(pendingGeolocationOrigin, granted, false)
+            pendingGeolocationOrigin = null
+            pendingGeolocationCallback = null
         }
     }
 

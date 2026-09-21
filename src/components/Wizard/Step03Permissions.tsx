@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, Camera, MapPin, UploadCloud, Bell, ShieldCheck, Info } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, MapPin, UploadCloud, Bell, ShieldCheck, Info, Mic, Download, ExternalLink } from 'lucide-react';
 import type { ProjectConfig } from '../../types';
 
 interface Step03PermissionsProps {
@@ -156,6 +156,41 @@ export const Step03Permissions: React.FC<Step03PermissionsProps> = ({
               />
             </div>
           )}
+        </div>
+
+        <div className="p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white mt-0.5"><Mic className="w-5 h-5" /></div>
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">Microphone Access</h3>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Requests native RECORD_AUDIO only when the website asks for audio capture.</p>
+              </div>
+            </div>
+            <input type="checkbox" checked={config.enableMicrophone} onChange={(e) => setConfig((prev) => ({ ...prev, enableMicrophone: e.target.checked }))} className="mt-1 h-4 w-4" />
+          </div>
+        </div>
+
+        <div className="p-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-3xl space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-2.5 rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white mt-0.5"><Download className="w-5 h-5" /></div>
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">Downloads & Popups</h3>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Use Android's download system and make new-window behavior explicit.</p>
+              </div>
+            </div>
+            <input type="checkbox" checked={config.enableDownloads} onChange={(e) => setConfig((prev) => ({ ...prev, enableDownloads: e.target.checked }))} className="mt-1 h-4 w-4" />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+            <ExternalLink className="w-4 h-4" />
+            <span>Popup policy</span>
+            <select value={config.popupBehavior} onChange={(e) => setConfig((prev) => ({ ...prev, popupBehavior: e.target.value as ProjectConfig['popupBehavior'], enablePopups: e.target.value !== 'same_webview' || prev.enablePopups }))} className="ml-auto rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-2 py-1">
+              <option value="external_browser">External browser</option>
+              <option value="same_webview">Same WebView</option>
+              <option value="in_app">Controlled in-app window</option>
+            </select>
+          </label>
         </div>
 
         {/* Notifications */}

@@ -1,5 +1,14 @@
 export type Platform = 'android' | 'ios' | 'both';
 
+export type CompatibilityStatus = 'compatible' | 'native_required' | 'browser_required' | 'not_supported';
+
+export interface CompatibilityFeature {
+  detected: boolean;
+  status: CompatibilityStatus;
+  reason?: string;
+  recommendation?: string;
+}
+
 export type BuildStatus =
   | 'QUEUED'
   | 'PREPARING'
@@ -30,12 +39,37 @@ export interface WebsiteAnalysis {
   themeColor?: string;
   detectedFeatures: {
     camera: boolean;
+    microphone: boolean;
     location: boolean;
     fileUpload: boolean;
+    fileDownload: boolean;
+    notifications: boolean;
+    popups: boolean;
+    oauth: boolean;
+    payments: boolean;
+    websocket: boolean;
+    webrtc: boolean;
+    externalDomains: string[];
+    deepLinks: boolean;
+    browserApis: string[];
+    localStorage: boolean;
+    cookies: boolean;
+    indexedDb: boolean;
+    fullscreen: boolean;
+    clipboard: boolean;
     audio: boolean;
     video: boolean;
+    permissions: string[];
+    iframes: boolean;
+    contentSecurityPolicy?: string;
+    xFrameOptions?: string;
+    antiAutomation: boolean;
   };
   compatibility: {
+    score: number;
+    overall: 'good' | 'needs_configuration' | 'limited';
+    features: Record<string, CompatibilityFeature>;
+    deductions: string[];
     webViewScore: 'excellent' | 'good' | 'fair' | 'poor';
     responsiveScore: 'excellent' | 'good' | 'fair';
     httpsScore: 'secure' | 'insecure';
@@ -69,7 +103,11 @@ export interface ProjectConfig {
   enableLocation: boolean;
   locationPermissionReason: string;
   enableFileUpload: boolean;
+  enableMicrophone: boolean;
+  enableDownloads: boolean;
+  enablePopups: boolean;
   enableNotifications: boolean;
+  popupBehavior: 'in_app' | 'external_browser' | 'same_webview';
   
   // Splash & Assets
   iconBase64?: string;

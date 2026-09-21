@@ -246,6 +246,34 @@ export const Step01Website: React.FC<Step01WebsiteProps> = ({
           </div>
 
           {/* Compatibility Advice */}
+          <div className="p-4 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-200 dark:border-neutral-800 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Web Compatibility</p>
+                <p className="text-2xl font-semibold text-neutral-900 dark:text-white">{analysis.compatibility.score}%</p>
+              </div>
+              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300">
+                {analysis.compatibility.overall === 'good' ? 'Good' : 'Needs configuration'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {Object.entries(analysis.compatibility.features).filter(([, feature]) => feature.detected).map(([name, feature]) => (
+                <div key={name} className="p-2.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700">
+                  <p className="text-xs font-medium capitalize text-neutral-800 dark:text-neutral-200">{name.replace(/[A-Z]/g, (letter) => ` ${letter}`)}</p>
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">{feature.status.replace('_', ' ')}</p>
+                </div>
+              ))}
+            </div>
+            {analysis.compatibility.deductions.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Why the score changed</p>
+                <ul className="mt-1 list-disc list-inside text-xs text-neutral-600 dark:text-neutral-400 space-y-1">
+                  {analysis.compatibility.deductions.map((deduction, index) => <li key={index}>{deduction}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+
           {analysis.compatibility.recommendations.length > 0 && (
             <div className="p-3.5 bg-neutral-50 dark:bg-neutral-800/50 rounded-2xl border border-neutral-200 dark:border-neutral-800 text-xs space-y-1.5">
               <div className="flex items-center gap-1.5 font-medium text-neutral-900 dark:text-white">

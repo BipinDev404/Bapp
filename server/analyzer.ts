@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { validateWebsiteUrl } from './security';
-import type { WebsiteAnalysis } from '../src/types';
+import type { CompatibilityFeature, WebsiteAnalysis } from '../src/types';
 
 export async function analyzeWebsite(targetUrl: string): Promise<WebsiteAnalysis> {
   const validation = await validateWebsiteUrl(targetUrl);
@@ -181,40 +181,84 @@ export async function analyzeWebsite(targetUrl: string): Promise<WebsiteAnalysis
   const themeMatch = html.match(/<meta[^>]+name=["']theme-color["'][^>]+content=["']([^"']+)["']/i);
   const themeColor = themeMatch ? themeMatch[1].trim() : undefined;
 
-  // Feature detection
+  const headerValue = (name: string) => response.headers.get(name) || undefined;
+  const scriptText = html.replace(/<[^>]+>/g, ' ');
+  const detect = (pattern: RegExp) => pattern.test(`${html} ${scriptText}`);
+  const featureUrls = [...html.matchAll(/(?:src|href|action|url)=["']([^"']+)["']/gi)]
+    .map((match) => match[1])
+    .map((candidate) => { try { return new URL(candidate, finalUrl); } catch { return null; } })
+    .filter((candidate): candidate is URL => Boolean(candidate));
+  const primaryHost = new URL(finalUrl).hostname;
+  const externalDomains = [...new Set(featureUrls.map((candidate) => candidate.hostname).filter((host) => host && host !== primaryHost && !host.endsWith(`.${primaryHost}`)))];
+  const permissions = [...new Set([...html.matchAll(/(?:Permissions-Policy|allow)=["']([^"']+)["']/gi)].flatMap((match) => match[1].split(/[;, ]+/).filter(Boolean)))];
+  const browserApis = ['Web Bluetooth', 'Web Share', 'Web NFC', 'Payment Request', 'Web Locks'].filter((name) => ({
+    'Web Bluetooth': detect(/bluetooth|getAvailability/i),
+    'Web Share': detect(/navigator\.share/i),
+    'Web NFC': detect(/NDEFReader|nfc/i),
+    'Payment Request': detect(/PaymentRequest/i),
+    'Web Locks': detect(/navigator\.locks/i),
+  }[name]));
   const detectedFeatures = {
-    camera: /getUserMedia|capture=["']user["']|capture=["']environment["']/i.test(html),
-    location: /geolocation\.getCurrentPosition|watchPosition/i.test(html),
-    fileUpload: /<input[^>]+type=["']file["']/i.test(html),
-    audio: /<audio|AudioContext|webkitAudioContext/i.test(html),
-    video: /<video/i.test(html),
+    camera: detect(/getUserMedia|mediaDevices|capture=["'](?:user|environment)["']/i),
+    microphone: detect(/getUserMedia|audio:\s*true|microphone/i),
+    location: detect(/geolocation\.(?:getCurrentPosition|watchPosition)/i),
+    fileUpload: detect(/<input[^>]+type=["']file["']/i),
+    fileDownload: detect(/download=["']|application\/(?:pdf|zip)|Content-Disposition|Blob\(|URL\.createObjectURL/i),
+    notifications: detect(/Notification|PushManager|serviceWorker\.ready/i),
+    popups: detect(/target=["']_blank|window\.open|noopener/i),
+    oauth: detect(/oauth|openid|authorize|accounts\.google|login\.microsoftonline|facebook\.com\/dialog|appleid\.apple/i),
+    payments: detect(/stripe|paypal|braintree|adyen|checkout|PaymentRequest/i),
+    websocket: detect(/WebSocket|wss?:\/\//i),
+    webrtc: detect(/RTCPeerConnection|RTCSessionDescription|WebRTC/i),
+    externalDomains,
+    deepLinks: detect(/intent:\/\/|[a-z][a-z0-9+.-]{2,}:\/\/|universal.?link|app.?link/i),
+    browserApis,
+    localStorage: detect(/localStorage|sessionStorage/i),
+    cookies: Boolean(response.headers.get('set-cookie')) || detect(/document\.cookie/i),
+    indexedDb: detect(/indexedDB|IDBDatabase/i),
+    fullscreen: detect(/requestFullscreen|webkitEnterFullscreen/i),
+    clipboard: detect(/clipboard(?:\.write|\.read|Data)/i),
+    audio: detect(/<audio|AudioContext|webkitAudioContext/i),
+    video: detect(/<video|MediaSource/i),
+    permissions,
+    iframes: detect(/<iframe/i),
+    contentSecurityPolicy: headerValue('content-security-policy'),
+    xFrameOptions: headerValue('x-frame-options'),
+    antiAutomation: detect(/captcha|recaptcha|hcaptcha|turnstile|navigator\.webdriver|bot.?detect|anti.?bot/i),
   };
 
-  // Compatibility assessment
-  const issues: string[] = [];
+  const deductions: string[] = [];
   const recommendations: string[] = [];
+  const addDeduction = (condition: boolean, message: string, recommendation: string) => {
+    if (condition) {
+      deductions.push(message);
+      recommendations.push(recommendation);
+    }
+  };
+  addDeduction(!isHttps, 'HTTPS is not enabled', 'Enable HTTPS before publishing; cleartext is restricted on modern mobile platforms.');
+  addDeduction(!isResponsive, 'Responsive viewport was not detected', 'Add a mobile viewport and verify layout at phone widths.');
+  addDeduction(finalUrl !== url, 'The website redirects to another URL', 'Review the final host and include trusted redirect domains.');
+  addDeduction(detectedFeatures.camera, 'Camera requires native permission', 'Enable camera access in project configuration.');
+  addDeduction(detectedFeatures.microphone, 'Microphone requires native permission', 'Enable microphone access in project configuration.');
+  addDeduction(detectedFeatures.location, 'Location requires native permission', 'Enable location access in project configuration.');
+  addDeduction(detectedFeatures.fileUpload, 'File chooser handling is required', 'Enable file uploads to provide camera, gallery, and document picking.');
+  addDeduction(detectedFeatures.fileDownload, 'Download handling is required', 'Enable native downloads; files will not be executed automatically.');
+  addDeduction(detectedFeatures.oauth, 'External authentication detected', 'Use an external browser and an app link for providers that reject embedded login.');
+  addDeduction(detectedFeatures.payments, 'External payment flow detected', 'Use the provider-supported browser flow and return via a deep link.');
+  addDeduction(detectedFeatures.popups, 'Popup or new-window handling is required', 'Choose a popup policy during configuration.');
+  addDeduction(detectedFeatures.antiAutomation, 'Bot or anti-automation checks detected', 'Test authentication and challenge flows on a real device.');
+  addDeduction(Boolean(detectedFeatures.xFrameOptions || detectedFeatures.contentSecurityPolicy?.includes('frame-ancestors')), 'Embedding restrictions were detected', 'The generated app navigates the site directly; do not rely on iframe embedding.');
+  if (isPwa) recommendations.push('PWA detected; test service-worker caching separately because WebView behavior can differ from Chrome.');
 
-  if (!isHttps) {
-    issues.push('Website is using unencrypted HTTP. Android and iOS require HTTPS by default.');
-    recommendations.push('Configure an SSL certificate or enable cleartext traffic in project configuration.');
-  }
-
-  if (!isResponsive) {
-    issues.push('No mobile-optimized responsive viewport meta tag detected.');
-    recommendations.push('Ensure the web layout scales well on mobile screens.');
-  }
-
-  if (detectedFeatures.camera) {
-    recommendations.push('Camera API detected. Ensure Camera permissions are enabled in step 3.');
-  }
-
-  if (detectedFeatures.fileUpload) {
-    recommendations.push('File upload inputs detected. Bapp will include native WebChromeClient file pickers.');
-  }
-
-  if (isPwa) {
-    recommendations.push('PWA detected. Offline caching and manifest assets will be supported.');
-  }
+  const booleanFeatureNames = ['camera', 'microphone', 'location', 'fileUpload', 'fileDownload', 'notifications', 'popups', 'oauth', 'payments', 'websocket', 'webrtc', 'localStorage', 'cookies', 'indexedDb', 'fullscreen', 'clipboard', 'audio', 'video', 'iframes', 'antiAutomation'] as const;
+  const features: Record<string, CompatibilityFeature> = Object.fromEntries(booleanFeatureNames.map((name) => [name, {
+    detected: detectedFeatures[name],
+    status: !detectedFeatures[name] ? 'compatible' : ['camera', 'microphone', 'location', 'fileUpload', 'fileDownload', 'notifications', 'popups', 'fullscreen', 'clipboard'].includes(name) ? 'native_required' : ['oauth', 'payments'].includes(name) ? 'browser_required' : 'compatible',
+    recommendation: deductions.find((item) => item.toLowerCase().includes(name.toLowerCase())),
+  }])) as Record<string, CompatibilityFeature>;
+  const score = Math.max(0, 100 - deductions.length * 5);
+  const overall = score >= 85 ? 'good' : score >= 60 ? 'needs_configuration' : 'limited';
+  const issues = [...deductions];
 
   const webViewScore: 'excellent' | 'good' | 'fair' | 'poor' =
     isHttps && isResponsive ? 'excellent' : isHttps ? 'good' : 'fair';
@@ -242,6 +286,10 @@ export async function analyzeWebsite(targetUrl: string): Promise<WebsiteAnalysis
     themeColor,
     detectedFeatures,
     compatibility: {
+      score,
+      overall,
+      features,
+      deductions,
       webViewScore,
       responsiveScore,
       httpsScore,

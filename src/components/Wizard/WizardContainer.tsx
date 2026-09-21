@@ -46,7 +46,11 @@ export const WizardContainer: React.FC<WizardContainerProps> = ({
     enableLocation: false,
     locationPermissionReason: 'Used to provide location-specific features',
     enableFileUpload: true,
+    enableMicrophone: false,
+    enableDownloads: true,
+    enablePopups: true,
     enableNotifications: false,
+    popupBehavior: 'external_browser',
     splashBackgroundColor: '#0A0A0A',
     enableDomStorage: true,
     enableJavaScript: true,
@@ -71,8 +75,11 @@ export const WizardContainer: React.FC<WizardContainerProps> = ({
         iconUrl: res.faviconBase64 || res.faviconUrl || prev.iconUrl,
         iconBase64: res.faviconBase64 || prev.iconBase64,
         enableCamera: res.detectedFeatures.camera,
+        enableMicrophone: res.detectedFeatures.microphone,
         enableLocation: res.detectedFeatures.location,
-        enableFileUpload: res.detectedFeatures.fileUpload,
+        enableFileUpload: res.detectedFeatures.fileUpload || prev.enableFileUpload,
+        enableDownloads: res.detectedFeatures.fileDownload || prev.enableDownloads,
+        enablePopups: res.detectedFeatures.popups || prev.enablePopups,
       }));
     }
   };
