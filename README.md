@@ -117,6 +117,19 @@ https://YOUR-DOMAIN.vercel.app/api/system/health
 
 It should return JSON containing `"status":"operational"`. If the frontend receives an HTML page from an API URL, Vercel is serving the frontend fallback instead of the API function; check that `api/index.ts` and `vercel.json` are included in the deployed repository.
 
+## Recommended Deployment: Render
+
+Render is a better fit for the complete Bapp application because it runs the Express server as a persistent web service and can execute the Python APK packer. The repository includes `Dockerfile` and `render.yaml` for this deployment.
+
+1. Push the repository to GitHub.
+2. In Render, choose **New > Blueprint** and select the repository.
+3. Render detects `render.yaml`, builds the Docker image, and creates the web service.
+4. Open the generated Render URL and verify `/api/system/health` returns JSON.
+
+The included Blueprint uses the `starter` plan because free services sleep and are not suitable for long-running build jobs. You can change the plan in Render if occasional sleeping and lost in-memory state are acceptable.
+
+The Docker image installs Node.js and Python, preserves `server/templates/webview-base.apk`, and runs `npm start`. The service listens on Render's `PORT` environment variable.
+
 ## Application Workflow
 
 1. Enter a public website URL and confirm that you have permission to package it.
