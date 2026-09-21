@@ -104,6 +104,15 @@ def rebuild_axml_stringpool(manifest_bytes, package_id):
         print(f"Warning: Failed to rebuild AXML stringpool: {e}", file=sys.stderr)
         return manifest_bytes
 
+def encode_uleb128(value):
+    encoded = bytearray()
+    while True:
+        byte = value & 0x7f
+        value >>= 7
+        encoded.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(encoded)
+
 def patch_and_pack(base_path, out_path, app_name, target_url, theme_color='#0A0A0A', bg_color='#0A0A0A', raw_config=None, package_id='com.example.app', icon_map=None):
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"Base APK template not found: {base_path}")
@@ -112,25 +121,35 @@ def patch_and_pack(base_path, out_path, app_name, target_url, theme_color='#0A0A
         in_apk = zipfile.ZipFile(f)
 
         # 1. Patch classes.dex:
-        # Patch string 3805 directly so MainActivity and NetworkCallback load target_url natively
+        # Patch the template URL string so MainActivity and NetworkCallback load target_url natively
         dex_bytes = in_apk.read('classes.dex')
         str_ids_off = struct.unpack_from('<I', dex_bytes, 0x3c)[0]
         str_ids_size = struct.unpack_from('<I', dex_bytes, 0x38)[0]
-        s_off = struct.unpack_from('<I', dex_bytes, str_ids_off + 3805 * 4)[0]
-        orig_len = dex_bytes[s_off] # 31
-        orig_total_slot = 1 + orig_len + 1 # 33 bytes
+        target_string = b'https://github.com/bishwassagar'
+        s_off = None
+        orig_total_slot = None
+        for string_index in range(str_ids_size):
+            candidate_offset = struct.unpack_from('<I', dex_bytes, str_ids_off + string_index * 4)[0]
+            if dex_bytes[candidate_offset + 1 : candidate_offset + 1 + len(target_string)] == target_string:
+                s_off = candidate_offset
+                original_length = dex_bytes[candidate_offset]
+                orig_total_slot = len(encode_uleb128(original_length)) + original_length + 1
+                break
+        if s_off is None or orig_total_slot is None:
+            raise ValueError('Template URL string not found in classes.dex')
 
         clean_url = target_url.strip() if target_url else 'https://example.com'
         target_bytes = clean_url.encode('utf-8')
+        encoded_length = encode_uleb128(len(target_bytes))
 
         dex = bytearray(dex_bytes)
-        if len(target_bytes) <= orig_len:
-            encoded = bytes([len(target_bytes)]) + target_bytes + b'\x00'
+        if len(encoded_length) + len(target_bytes) + 1 <= orig_total_slot:
+            encoded = encoded_length + target_bytes + b'\x00'
             padding = orig_total_slot - len(encoded)
             dex[s_off : s_off + orig_total_slot] = encoded + (b'\x00' * padding)
         else:
-            delta = (1 + len(target_bytes) + 1) - orig_total_slot
-            encoded = bytes([len(target_bytes)]) + target_bytes + b'\x00'
+            delta = (len(encoded_length) + len(target_bytes) + 1) - orig_total_slot
+            encoded = encoded_length + target_bytes + b'\x00'
             head = dex[:s_off]
             tail = dex[s_off + orig_total_slot:]
             dex = head + encoded + tail
@@ -150,6 +169,7 @@ def patch_and_pack(base_path, out_path, app_name, target_url, theme_color='#0A0A
                     struct.pack_into('<I', dex, item_pos + 8, offset + delta)
 
             struct.pack_into('<I', dex, 0x20, len(dex))
+            struct.pack_into('<I', dex, 0x68, struct.unpack_from('<I', dex_bytes, 0x68)[0] + delta)
 
         # Recalculate SHA-1 and Adler-32 checksums
         sha1 = hashlib.sha1(dex[32:]).digest()
